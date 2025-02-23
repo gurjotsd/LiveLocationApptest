@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string></string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string></string>
+	<key>API_KEY</key>
+	<string>AIzaSyCOba3Stry6c4zFrdU9Pgjl9rmsP7yJ-YY</string>
+	<key>GCM_SENDER_ID</key>
+	<string>54775641316</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.gurjotsd.LocationSharingApp</string>
+	<key>PROJECT_ID</key>
+	<string>locationsharinga-cdd54</string>
+	<key>STORAGE_BUCKET</key>
+	<string>locationsharinga-cdd54.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false/>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false/>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true/>
+	<key>IS_GCM_ENABLED</key>
+	<true/>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true/>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:54775641316:ios:388d50b26a2e86a6a8e8f1</string>
+</dict>
+</plist>

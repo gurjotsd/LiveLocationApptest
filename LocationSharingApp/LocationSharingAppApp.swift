@@ -1,17 +1,25 @@
-//
-//  LocationSharingAppApp.swift
-//  LocationSharingApp
-//
-//  Created by Gurjot Dhillon on 15/02/2025.
-//
-
 import SwiftUI
+import Firebase
+import FirebaseAuth
 
 @main
-struct LocationSharingAppApp: App {
+struct LocationSharingApp: App {
+    @StateObject var session = SessionStore()
+    
+    init() {
+        FirebaseApp.configure()
+    }
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if session.currentUser != nil {
+                HomeView()
+                    .environmentObject(session)
+            } else {
+                LoginView()
+                    .environmentObject(session)
+            }
         }
     }
 }
+
