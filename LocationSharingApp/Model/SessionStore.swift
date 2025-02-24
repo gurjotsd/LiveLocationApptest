@@ -5,30 +5,117 @@ import FirebaseStorage
 
 class SessionStore: ObservableObject {
     @Published var currentUser: User?
+    @Published var authModel = AuthModel()
     private var handle: AuthStateDidChangeListenerHandle?
     private let db = Firestore.firestore()
     
     init() {
-        listen()
+        listenToAuthState()
     }
     
-    func listen() {
-        handle = Auth.auth().addStateDidChangeListener { auth, user in
-            self.currentUser = user
+    func listenToAuthState() {
+        if let handle = handle {
+            Auth.auth().removeStateDidChangeListener(handle)
+        }
+        
+        // Add new listener
+        handle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                // Update auth state
+                self.currentUser = user
+                self.authModel.isLoggedIn = user != nil
+                self.authModel.currentUserEmail = user?.email
+                
+                // If email was changed, update Firestore
+                if let email = user?.email?.lowercased() {
+                    self.updateUserEmailInFirestore(email: email)
+                }
+            }
+        }
+    }
+    
+    private func updateUserEmailInFirestore(email: String) {
+        // Only update if user exists
+        guard currentUser != nil else { return }
+        
+        db.collection("users").document(email).getDocument { [weak self] snapshot, error in
+            if let error = error {
+                print("Error checking user document: \(error.localizedDescription)")
+                return
+            }
+            
+            // If document doesn't exist, it means email was changed
+            if snapshot?.exists != true {
+                // Update friends' references
+                self?.updateFriendsReferences(newEmail: email)
+            }
+        }
+    }
+    
+    private func updateFriendsReferences(newEmail: String) {
+        // Update friends lists that contain the old email
+        db.collection("users").whereField("friends", arrayContains: self.currentUser?.email ?? "")
+            .getDocuments { [weak self] snapshot, error in
+                guard let documents = snapshot?.documents else {
+                    print("Error getting documents: \(error?.localizedDescription ?? "unknown error")")
+                    return
+                }
+                
+                let batch = self?.db.batch()
+                
+                for doc in documents {
+                    if let batch = batch {
+                        let ref = self?.db.collection("users").document(doc.documentID)
+                        if let ref = ref {
+                            batch.updateData([
+                                "friends": FieldValue.arrayRemove([self?.currentUser?.email ?? ""]),
+                                "friends": FieldValue.arrayUnion([newEmail])
+                            ], forDocument: ref)
+                        }
+                    }
+                }
+                
+                batch?.commit { error in
+                    if let error = error {
+                        print("Error updating friends references: \(error.localizedDescription)")
+                    }
+                }
+            }
+    }
+    
+    func signIn(email: String, password: String, completion: @escaping (Bool, String) -> Void) {
+        print("🔐 Attempting to sign in user: \(email)")
+        Auth.auth().signIn(withEmail: email, password: password) { authResult, error in
+            if let error = error {
+                print("❌ Sign in failed: \(error.localizedDescription)")
+                completion(false, error.localizedDescription)
+            } else {
+                print("✅ User signed in successfully!")
+                DispatchQueue.main.async {
+                    self.authModel.isLoggedIn = true
+                }
+                completion(true, "Successfully signed in")
+            }
         }
     }
     
     func signOut() {
+        print("🚪 Attempting to sign out user")
         do {
             try Auth.auth().signOut()
-            self.currentUser = nil
+            print("✅ User signed out successfully")
+            DispatchQueue.main.async {
+                self.currentUser = nil
+                self.authModel.isLoggedIn = false
+            }
         } catch {
-            print("Error signing out: \(error.localizedDescription)")
+            print("❌ Sign out failed: \(error.localizedDescription)")
         }
     }
     
     func signUp(email: String, password: String, displayName: String, profileImageData: Data? = nil, completion: @escaping (Error?) -> Void) {
-        print("Starting registration process for email: \(email)")
+        print("📝 Starting registration process for: \(email)")
         
         Auth.auth().createUser(withEmail: email, password: password) { [weak self] result, error in
             if let error = error {
@@ -37,7 +124,7 @@ class SessionStore: ObservableObject {
                 return
             }
             
-            print("✅ User successfully created in Firebase Auth")
+            print("✅ User account created successfully")
             
             guard let userEmail = result?.user.email?.lowercased() else {
                 print("❌ Failed to get user email")
@@ -54,35 +141,29 @@ class SessionStore: ObservableObject {
                 "pendingRequests": []
             ]
             
-            print("Creating Firestore document for user: \(userEmail)")
+            print("📄 Creating Firestore document for user")
             
             self?.db.collection("users").document(userEmail).setData(userData) { error in
                 if let error = error {
-                    print("❌ Failed to create Firestore document: \(error.localizedDescription)")
+                    print("❌ Failed to create user document: \(error.localizedDescription)")
                     completion(error)
                     return
                 }
                 
-                print("✅ User document successfully created in Firestore")
+                print("✅ User document created successfully")
                 
-                // If we have profile image data, upload it
                 if let imageData = profileImageData {
-                    print("Starting profile image upload")
+                    print("🖼️ Uploading profile picture")
                     self?.uploadProfileImage(imageData, for: userEmail) { error in
                         if let error = error {
-                            print("❌ Profile image upload failed: \(error.localizedDescription)")
-                            completion(error)
-                            return
+                            print("⚠️ Profile picture upload failed: \(error.localizedDescription)")
                         } else {
-                            print("✅ Profile image successfully uploaded")
+                            print("✅ Profile picture uploaded successfully")
                         }
-                        
-                        // Continue to complete the sign-up after image upload
-                        completion(nil)
+                        completion(error)
                     }
                 } else {
-                    print("No profile image to upload")
-                    // No image to upload, complete the sign-up process
+                    print("ℹ️ No profile picture to upload")
                     completion(nil)
                 }
             }
