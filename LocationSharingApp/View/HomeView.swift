@@ -14,6 +14,10 @@ struct HomeView: View {
     )
     @State private var friendsListener: ListenerRegistration?
     @State private var locationListener: ListenerRegistration?
+    @State private var selectedTab = 0
+    @State private var showingFriendsList = false
+    @State private var showingRequests = false
+    @State private var showingProfile = false
     
     struct Friend: Identifiable {
         let id: String
@@ -53,44 +57,58 @@ struct HomeView: View {
                     ProgressView()
                 }
                 
-                // Bottom Menu Bar needs workinh on
-                HStack {
-                    NavigationLink(destination: FriendsListView()) {
-                        VStack(spacing: 6) {
-                            Image(systemName: "person.2.fill")
-                                .font(.system(size: 24))
-                            Text("Friends")
-                                .font(.caption)
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
+                // Updated Bottom Menu
+                HStack(spacing: 0) {
+                    TabBarButton(
+                        title: "Friends",
+                        icon: "person.2.fill",
+                        isActive: selectedTab == 0
+                    )
+                    .onTapGesture {
+                        selectedTab = 0
+                        showingFriendsList = true
                     }
                     
-                    NavigationLink(destination: RequestsView()) {
-                        VStack(spacing: 6) {
-                            Image(systemName: "person.badge.plus")
-                                .font(.system(size: 24))
-                            Text("Add/Requests")
-                                .font(.caption)
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
+                    TabBarButton(
+                        title: "Add",
+                        icon: "person.badge.plus",
+                        isActive: selectedTab == 1
+                    )
+                    .onTapGesture {
+                        selectedTab = 1
+                        showingRequests = true
                     }
                     
-                    NavigationLink(destination: ProfileView(userEmail: Auth.auth().currentUser?.email ?? "", isCurrentUser: true)) {
-                        VStack(spacing: 6) {
-                            Image(systemName: "person.circle")
-                                .font(.system(size: 24))
-                            Text("Profile")
-                                .font(.caption)
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
+                    TabBarButton(
+                        title: "Profile",
+                        icon: "person.circle.fill",
+                        isActive: selectedTab == 2
+                    )
+                    .onTapGesture {
+                        selectedTab = 2
+                        showingProfile = true
                     }
                 }
-                .padding(.vertical, 12)
-                .background(.black.opacity(0.8))
-                .ignoresSafeArea(edges: .bottom)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(
+                    Color.black.opacity(0.8)
+                        .background(.ultraThinMaterial)
+                        .blur(radius: 3)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 25))
+                .padding(.horizontal)
+                .padding(.bottom, 20)
+                .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
+            }
+            .navigationDestination(isPresented: $showingFriendsList) {
+                FriendsListView()
+            }
+            .navigationDestination(isPresented: $showingRequests) {
+                RequestsView()
+            }
+            .navigationDestination(isPresented: $showingProfile) {
+                ProfileView(userEmail: Auth.auth().currentUser?.email ?? "", isCurrentUser: true)
             }
             .navigationBarHidden(true)
             .onAppear {
@@ -163,6 +181,72 @@ struct HomeView: View {
                     }
                 }
             }
+    }
+}
+
+// Create a custom TabBarButton view
+struct TabBarButton: View {
+    let title: String
+    let icon: String
+    let isActive: Bool
+    
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 24))
+                .foregroundColor(isActive ? .blue : .white)
+            Text(title)
+                .font(.caption)
+                .foregroundColor(isActive ? .blue : .white)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(isActive ? Color.white.opacity(0.1) : .clear)
+        .cornerRadius(10)
+    }
+}
+
+struct CustomMapAnnotation: View {
+    let friend: Friend
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(systemName: "person.circle.fill")
+                .font(.system(size: 30))
+                .foregroundColor(friend.isOnline ? .green : .gray)
+                .background(
+                    Circle()
+                        .fill(.white)
+                        .shadow(color: .black.opacity(0.2), radius: 4)
+                )
+            
+            Text(friend.displayName)
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.white)
+                .cornerRadius(8)
+                .shadow(radius: 2)
+        }
+    }
+}
+
+struct LocationStatusBar: View {
+    @ObservedObject var locationManager: LocationManager
+    
+    var body: some View {
+        HStack {
+            Image(systemName: locationManager.isAuthorized ? "location.fill" : "location.slash.fill")
+                .foregroundColor(locationManager.isAuthorized ? .green : .red)
+            
+            Text(locationManager.isAuthorized ? "Sharing Location" : "Location Disabled")
+                .font(.caption)
+                .foregroundColor(.white)
+        }
+        .padding(8)
+        .background(.ultraThinMaterial)
+        .cornerRadius(20)
+        .padding(.top)
     }
 }
 
