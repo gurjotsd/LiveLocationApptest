@@ -23,6 +23,7 @@ struct ProfileView: View {
     @State private var showingEmailChange = false
     @State private var showingPasswordReset = false
     @State private var newEmail = ""
+    @State private var showingRemoveConfirmation = false
     let userEmail: String
     let isCurrentUser: Bool
     private let db = Firestore.firestore()
@@ -188,6 +189,26 @@ struct ProfileView: View {
                                     }
                                 }
                                 .padding(.horizontal)
+                            } else {
+                                Button(action: { showingRemoveConfirmation = true }) {
+                                    HStack {
+                                        Image(systemName: "person.badge.minus")
+                                            .foregroundColor(.red)
+                                        Text("Remove Friend")
+                                            .foregroundColor(.red)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .fill(Color.red.opacity(0.1))
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 14)
+                                                    .stroke(Color.red.opacity(0.2), lineWidth: 1)
+                                            )
+                                        )
+                                }
+                                .padding()
                             }
                         }
                         .padding(.vertical, 30)
@@ -219,6 +240,16 @@ struct ProfileView: View {
         }
         .alert(alertMessage, isPresented: $showAlert) {
             Button("OK", role: .cancel) { }
+        }
+        .alert("Remove Friend", isPresented: $showingRemoveConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Remove", role: .destructive) {
+                Task {
+                    await removeFriend()
+                }
+            }
+        } message: {
+            Text("Are you sure you want to remove this friend? You won't be able to see their location anymore.")
         }
         .onAppear {
             fetchUserProfile()
@@ -415,6 +446,44 @@ struct ProfileView: View {
                 }
                 self.alertMessage = message
                 self.showAlert = true
+            }
+        }
+    }
+    
+    private func removeFriend() async {
+        guard let currentUserEmail = Auth.auth().currentUser?.email?.lowercased() else { return }
+        let friendEmail = userEmail // Capture the userEmail value
+        
+        print("🗑️ Attempting to remove friend: \(friendEmail)")
+        
+        do {
+            let batch = db.batch()
+            
+            // Remove from current user's friends list
+            let currentUserRef = db.collection("users").document(currentUserEmail)
+            batch.updateData([
+                "friends": FieldValue.arrayRemove([friendEmail])
+            ], forDocument: currentUserRef)
+            
+            // Remove current user from friend's friends list
+            let friendRef = db.collection("users").document(friendEmail)
+            batch.updateData([
+                "friends": FieldValue.arrayRemove([currentUserEmail])
+            ], forDocument: friendRef)
+            
+            try await batch.commit()
+            
+            await MainActor.run {
+                print("✅ Successfully removed friend")
+                alertMessage = "Friend removed successfully"
+                showAlert = true
+                dismiss()
+            }
+        } catch {
+            await MainActor.run {
+                print("❌ Failed to remove friend: \(error.localizedDescription)")
+                alertMessage = "Failed to remove friend: \(error.localizedDescription)"
+                showAlert = true
             }
         }
     }

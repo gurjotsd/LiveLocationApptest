@@ -12,6 +12,8 @@ struct HomeView: View {
         center: CLLocationCoordinate2D(latitude: 0, longitude: 0),
         span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
     )
+    @State private var friendsListener: ListenerRegistration?
+    @State private var locationListener: ListenerRegistration?
     
     struct Friend: Identifiable {
         let id: String
@@ -51,7 +53,7 @@ struct HomeView: View {
                     ProgressView()
                 }
                 
-                // Bottom Menu Bar
+                // Bottom Menu Bar needs workinh on
                 HStack {
                     NavigationLink(destination: FriendsListView()) {
                         VStack(spacing: 6) {
@@ -93,55 +95,74 @@ struct HomeView: View {
             .navigationBarHidden(true)
             .onAppear {
                 locationManager.requestLocationPermission()
-                startFriendsLocationListener()
+                startLocationListener()
+            }
+            .onDisappear {
+                locationListener?.remove()
+                friendsListener?.remove()
             }
         }
     }
     
-    private func startFriendsLocationListener() {
+    private func startLocationListener() {
         guard let currentUserEmail = Auth.auth().currentUser?.email?.lowercased() else { return }
         let db = Firestore.firestore()
         
-        // First, get the user's friends list
-        db.collection("users").document(currentUserEmail).addSnapshotListener { snapshot, error in
+        // First, listen for changes to the current user's friends list
+        let userRef = db.collection("users").document(currentUserEmail)
+        friendsListener = userRef.addSnapshotListener { snapshot, error in
             guard let data = snapshot?.data(),
                   let friendsList = data["friends"] as? [String] else { return }
             
-            // Then listen for location updates from all friends
-            for friendEmail in friendsList {
-                db.collection("users").document(friendEmail)
-                    .addSnapshotListener { friendSnapshot, friendError in
-                        guard let friendData = friendSnapshot?.data() else { return }
-                        
-                        let latitude = friendData["latitude"] as? Double
-                        let longitude = friendData["longitude"] as? Double
-                        let displayName = friendData["displayName"] as? String ?? "Unknown"
-                        let lastSeen = (friendData["lastSeen"] as? Timestamp)?.dateValue()
-                        
-                        var location: CLLocationCoordinate2D?
-                        if let lat = latitude, let lon = longitude {
-                            location = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-                        }
-                        
-                        // Update or add friend to the list
-                        DispatchQueue.main.async {
-                            if let index = friends.firstIndex(where: { $0.email == friendEmail }) {
-                                friends[index].location = location
-                                friends[index].lastSeen = lastSeen
-                            } else {
-                                let friend = Friend(
-                                    id: friendEmail,
-                                    email: friendEmail,
-                                    displayName: displayName,
-                                    location: location,
-                                    lastSeen: lastSeen
-                                )
-                                friends.append(friend)
-                            }
-                        }
-                    }
+            // Remove pins for users who are no longer friends
+            DispatchQueue.main.async {
+                self.friends = self.friends.filter { friend in
+                    friendsList.contains(friend.email)
+                }
             }
         }
+        
+        // Then listen for location updates from current friends
+        locationListener = db.collection("users")
+            .whereField("friends", arrayContains: currentUserEmail)
+            .addSnapshotListener { snapshot, error in
+                if let error = error {
+                    print("❌ Error listening for location updates: \(error.localizedDescription)")
+                    return
+                }
+                
+                guard let documents = snapshot?.documents else { return }
+                
+                DispatchQueue.main.async {
+                    for document in documents {
+                        let data = document.data()
+                        guard let latitude = data["latitude"] as? Double,
+                              let longitude = data["longitude"] as? Double,
+                              let displayName = data["displayName"] as? String,
+                              let lastSeen = (data["lastSeen"] as? Timestamp)?.dateValue() else {
+                            continue
+                        }
+                        
+                        let email = document.documentID
+                        let location = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+                        
+                        // Update or add friend location
+                        if let index = self.friends.firstIndex(where: { $0.email == email }) {
+                            self.friends[index].location = location
+                            self.friends[index].lastSeen = lastSeen
+                        } else {
+                            let friend = Friend(
+                                id: email,
+                                email: email,
+                                displayName: displayName,
+                                location: location,
+                                lastSeen: lastSeen
+                            )
+                            self.friends.append(friend)
+                        }
+                    }
+                }
+            }
     }
 }
 
