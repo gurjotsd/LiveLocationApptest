@@ -215,4 +215,3 @@ struct FriendRequestsView_Previews: PreviewProvider {
         FriendRequestsView()
     }
 }
-

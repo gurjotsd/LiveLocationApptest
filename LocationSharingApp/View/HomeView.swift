@@ -32,6 +32,59 @@ struct HomeView: View {
         }
     }
     
+    var bottomMenu: some View {
+        HStack(spacing: 16) {
+            TabBarButton(
+                title: "Friends",
+                icon: "person.2.fill",
+                isActive: selectedTab == 0
+            )
+            .onTapGesture {
+                withAnimation(.spring(response: 0.3)) {
+                    selectedTab = 0
+                    showingFriendsList = true
+                }
+            }
+            
+            TabBarButton(
+                title: "Add",
+                icon: "person.badge.plus",
+                isActive: selectedTab == 1
+            )
+            .onTapGesture {
+                withAnimation(.spring(response: 0.3)) {
+                    selectedTab = 1
+                    showingRequests = true
+                }
+            }
+            
+            TabBarButton(
+                title: "Profile",
+                icon: "person.circle.fill",
+                isActive: selectedTab == 2
+            )
+            .onTapGesture {
+                withAnimation(.spring(response: 0.3)) {
+                    selectedTab = 2
+                    showingProfile = true
+                }
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 32)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 32)
+                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                )
+        )
+        .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+        .padding(.horizontal)
+        .padding(.bottom, 20)
+    }
+    
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
@@ -57,49 +110,7 @@ struct HomeView: View {
                     ProgressView()
                 }
                 
-                // Updated Bottom Menu
-                HStack(spacing: 0) {
-                    TabBarButton(
-                        title: "Friends",
-                        icon: "person.2.fill",
-                        isActive: selectedTab == 0
-                    )
-                    .onTapGesture {
-                        selectedTab = 0
-                        showingFriendsList = true
-                    }
-                    
-                    TabBarButton(
-                        title: "Add",
-                        icon: "person.badge.plus",
-                        isActive: selectedTab == 1
-                    )
-                    .onTapGesture {
-                        selectedTab = 1
-                        showingRequests = true
-                    }
-                    
-                    TabBarButton(
-                        title: "Profile",
-                        icon: "person.circle.fill",
-                        isActive: selectedTab == 2
-                    )
-                    .onTapGesture {
-                        selectedTab = 2
-                        showingProfile = true
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(
-                    Color.black.opacity(0.8)
-                        .background(.ultraThinMaterial)
-                        .blur(radius: 3)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 25))
-                .padding(.horizontal)
-                .padding(.bottom, 20)
-                .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
+                bottomMenu
             }
             .navigationDestination(isPresented: $showingFriendsList) {
                 FriendsListView()
@@ -184,25 +195,32 @@ struct HomeView: View {
     }
 }
 
-// Create a custom TabBarButton view
+// First, let's create a better TabBarButton
 struct TabBarButton: View {
     let title: String
     let icon: String
     let isActive: Bool
     
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.system(size: 24))
-                .foregroundColor(isActive ? .blue : .white)
+                .font(.system(size: 24, weight: isActive ? .bold : .regular))
+                .foregroundColor(isActive ? .blue : .gray)
+                .frame(height: 24)
+                .scaleEffect(isActive ? 1.1 : 1.0)
+                .animation(.spring(response: 0.3), value: isActive)
+            
             Text(title)
-                .font(.caption)
-                .foregroundColor(isActive ? .blue : .white)
+                .font(.system(size: 12, weight: isActive ? .semibold : .medium))
+                .foregroundColor(isActive ? .blue : .gray)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
-        .background(isActive ? Color.white.opacity(0.1) : .clear)
-        .cornerRadius(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(isActive ? Color.blue.opacity(0.1) : .clear)
+                .animation(.spring(response: 0.3), value: isActive)
+        )
     }
 }
 

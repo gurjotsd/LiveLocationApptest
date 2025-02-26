@@ -41,7 +41,7 @@ struct BottomMenuView: View {
             }
             .padding(.vertical, 12)
         }
-        .background(.ultraThinMaterial.opacity(0.9))
+        .background(.ultraThinMaterial.opacity(1))
         .ignoresSafeArea(edges: .bottom)
         .navigationDestination(isPresented: Binding(
             get: { selectedDestination != nil },
