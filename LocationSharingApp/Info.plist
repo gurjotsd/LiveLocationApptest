@@ -8,5 +8,10 @@
 	<string>Please allow access to save photos</string>
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>comgooglemaps</string>
+		<string>googlemaps</string>
+	</array>
 </dict>
 </plist>

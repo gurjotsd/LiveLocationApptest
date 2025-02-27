@@ -20,7 +20,7 @@ struct Friend: Identifiable, Sendable {
     }
     
     // Add initializer to ensure id is always set to email
-    init(email: String, displayName: String, location: CLLocationCoordinate2D? = nil, 
+    init(email: String, displayName: String, location: CLLocationCoordinate2D? = nil,
          lastSeen: Date? = nil, lastKnownLocation: CLLocationCoordinate2D? = nil,
          profileImageUrl: String? = nil) {
         self.id = email
@@ -381,52 +381,80 @@ struct FriendRow: View {
     @State private var profileImage: UIImage?
     
     var body: some View {
-        HStack(spacing: 12) {
-            // Profile image with online status indicator
-            ZStack(alignment: .bottomTrailing) {
-                ProfileImageButton(
-                    image: profileImage,
-                    displayName: friend.displayName,
-                    action: profileTapAction
-                )
-                
-                // Online status indicator
-                Circle()
-                    .fill(friend.isOnline ? .green : .gray)
-                    .frame(width: 12, height: 12)
-                    .background(
-                        Circle()
-                            .fill(Color.cardBackground)
-                            .padding(2)
-                    )
-                    .offset(x: 2, y: 2)
+        HStack(spacing: 16) {
+            // Left side - Profile Picture (now without online indicator)
+            Group {
+                if let image = profileImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 50, height: 50)
+                        .clipShape(Circle())
+                        .onTapGesture {
+                            profileTapAction()
+                        }
+                } else {
+                    Circle()
+                        .fill(Color.blue.opacity(0.2))
+                        .frame(width: 50, height: 50)
+                        .overlay(
+                            Text(friend.displayName.prefix(1).uppercased())
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundColor(.blue)
+                        )
+                        .onTapGesture {
+                            profileTapAction()
+                        }
+                }
             }
-            .frame(width: 50, height: 50)
             
-            // Location info area as a separate button
+            // Middle - Location Card
             Button(action: locationTapAction) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(friend.displayName)
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.primary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(friend.displayName)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.primary)
+                    
+                    HStack(spacing: 4) {
+                        Text(locationName)
+                            .font(.caption)
+                            .foregroundColor(.gray)
                         
+                        // Online status indicator moved here
                         HStack(spacing: 4) {
-                            Text(locationName)
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                            
-                            Text(friend.isOnline ? "• Online" : "• Offline")
+                            Circle()
+                                .fill(friend.isOnline ? .green : .gray)
+                                .frame(width: 8, height: 8)
+                            Text(friend.isOnline ? "Online" : "Offline")
                                 .font(.caption)
                                 .foregroundColor(friend.isOnline ? .green : .gray)
                         }
                     }
-                    
-                    Spacer()
                 }
             }
             .buttonStyle(PlainButtonStyle())
+            
+            Spacer()
+            
+            // Right side - Navigation
+            if let location = friend.bestAvailableLocation {
+                ZStack {
+                    Circle()
+                        .fill(Color.clear)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
+                        .onTapGesture {
+                            openInGoogleMaps(location: location)
+                        }
+                    
+                    Image(systemName: "arrow.triangle.turn.up.right.circle.fill")
+                        .foregroundColor(.blue)
+                        .font(.system(size: 24))
+                }
+                .padding(.trailing, 4)
+            }
         }
+        .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .onAppear {
             loadProfileImage()
@@ -468,9 +496,32 @@ struct FriendRow: View {
             }
         }
     }
+    
+    private func openInGoogleMaps(location: CLLocationCoordinate2D) {
+        let urlString = "comgooglemaps://?daddr=\(location.latitude),\(location.longitude)&directionsmode=driving"
+        
+        if let url = URL(string: urlString), UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url) { success in
+                if !success {
+                    openInBrowser(location: location)
+                }
+            }
+        } else {
+            openInBrowser(location: location)
+        }
+    }
+    
+    private func openInBrowser(location: CLLocationCoordinate2D) {
+        let urlString = "https://www.google.com/maps/dir/?api=1&destination=\(location.latitude),\(location.longitude)&travelmode=driving"
+        
+        if let encodedString = urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let url = URL(string: encodedString) {
+            UIApplication.shared.open(url)
+        }
+    }
 }
 
-// Custom button for profile image
+// Profile Image Button Component
 struct ProfileImageButton: View {
     let image: UIImage?
     let displayName: String
@@ -559,5 +610,6 @@ struct LocationText: View {
         }
     }
 }
+
 
 
