@@ -11,22 +11,30 @@ struct Friend: Identifiable, Sendable {
     let displayName: String
     var location: CLLocationCoordinate2D?
     var lastSeen: Date?
+    var lastKnownLocation: CLLocationCoordinate2D?
     var profileImageUrl: String?
     
     var isOnline: Bool {
         guard let lastSeen = lastSeen else { return false }
-        return Date().timeIntervalSince(lastSeen) < 3000000 // 5 minutes
+        return Date().timeIntervalSince(lastSeen) < 300 // 5 minutes threshold
     }
     
     // Add initializer to ensure id is always set to email
     init(email: String, displayName: String, location: CLLocationCoordinate2D? = nil, 
-         lastSeen: Date? = nil, profileImageUrl: String? = nil) {
+         lastSeen: Date? = nil, lastKnownLocation: CLLocationCoordinate2D? = nil,
+         profileImageUrl: String? = nil) {
         self.id = email
         self.email = email
         self.displayName = displayName
         self.location = location
         self.lastSeen = lastSeen
+        self.lastKnownLocation = location ?? lastKnownLocation
         self.profileImageUrl = profileImageUrl
+    }
+    
+    // Helper to get the best available location
+    var bestAvailableLocation: CLLocationCoordinate2D? {
+        return location ?? lastKnownLocation
     }
 }
 
@@ -41,9 +49,7 @@ struct FriendsListView: View {
         span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
     ))
     
-    // Add this property to store the listener
     @State private var locationListener: ListenerRegistration?
-    
     private let db = Firestore.firestore()
     
     var body: some View {
@@ -63,10 +69,10 @@ struct FriendsListView: View {
             .padding()
             .background(Color(UIColor.systemBackground))
             
-            // Larger Map
+            // Map View
             Map(position: $cameraPosition) {
                 ForEach(friends) { friend in
-                    if let location = friend.location {
+                    if let location = friend.bestAvailableLocation {
                         Annotation(friend.displayName, coordinate: location) {
                             VStack {
                                 Image(systemName: "person.circle.fill")
@@ -78,12 +84,11 @@ struct FriendsListView: View {
                     }
                 }
             }
-            .frame(height: UIScreen.main.bounds.height * 0.4) // 40% of screen height
+            .frame(height: UIScreen.main.bounds.height * 0.4)
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .padding()
-            .shadow(radius: 5)
             
-            // Friends list
+            // Friends List
             if isLoading {
                 ProgressView()
                     .frame(maxHeight: .infinity)
@@ -96,8 +101,14 @@ struct FriendsListView: View {
                             selectedFriend = friend
                             showingProfile = true
                         } locationTapAction: {
-                            selectedFriend = friend
-                            updateMapRegion(for: friend)
+                            if let location = friend.bestAvailableLocation {
+                                withAnimation {
+                                    cameraPosition = .region(MKCoordinateRegion(
+                                        center: location,
+                                        span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
+                                    ))
+                                }
+                            }
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -114,185 +125,110 @@ struct FriendsListView: View {
             }
         }
         .navigationBarHidden(true)
-        .onAppear {
-            Task {
-                await fetchFriends()
-                startLocationListener()
-            }
-        }
-        .onDisappear {
-            locationListener?.remove()
-        }
         .sheet(isPresented: $showingProfile) {
             if let friend = selectedFriend {
                 ProfileView(userEmail: friend.email, isCurrentUser: false)
             }
         }
+        .onAppear {
+            startFriendsListener()
+        }
+        .onDisappear {
+            locationListener?.remove()
+        }
     }
     
-    private func updateMapRegion(for friend: Friend) {
-        guard let location = friend.location else {
-            print("⚠️ No location available for friend: \(friend.displayName)")
-            return
+    // Add this function to update the map region to show all friends
+    private func updateMapRegion() {
+        guard !friends.isEmpty else { return }
+        
+        var coordinates: [CLLocationCoordinate2D] = []
+        
+        // Collect all available locations
+        for friend in friends {
+            if let location = friend.bestAvailableLocation {
+                coordinates.append(location)
+            }
         }
         
-        print("🗺️ Updating map region for: \(friend.displayName)")
-        withAnimation(.easeInOut(duration: 0.5)) {
+        guard !coordinates.isEmpty else { return }
+        
+        // Calculate the center point
+        let latitudes = coordinates.map { $0.latitude }
+        let longitudes = coordinates.map { $0.longitude }
+        
+        let center = CLLocationCoordinate2D(
+            latitude: (latitudes.max()! + latitudes.min()!) / 2,
+            longitude: (longitudes.max()! + longitudes.min()!) / 2
+        )
+        
+        // Calculate the span to show all points
+        let latitudeDelta = (latitudes.max()! - latitudes.min()!) * 1.5 // 1.5 for padding
+        let longitudeDelta = (longitudes.max()! - longitudes.min()!) * 1.5
+        
+        withAnimation {
             cameraPosition = .region(MKCoordinateRegion(
-                center: location,
-                span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
+                center: center,
+                span: MKCoordinateSpan(
+                    latitudeDelta: max(latitudeDelta, 0.01),
+                    longitudeDelta: max(longitudeDelta, 0.01)
+                )
             ))
         }
     }
     
-    private func fetchFriends() async {
-        print("📥 Starting friends fetch...")
-        guard let currentUserEmail = Auth.auth().currentUser?.email?.lowercased() else {
-            print("❌ No authenticated user")
-            await MainActor.run {
-                isLoading = false
-            }
-            return
-        }
+    private func startFriendsListener() {
+        guard let currentUserEmail = Auth.auth().currentUser?.email?.lowercased() else { return }
         
-        do {
-            let snapshot = try await db.collection("users").document(currentUserEmail).getDocument()
-            guard let data = snapshot.data(),
-                  let friendsList = data["friends"] as? [String] else {
-                print("❌ No friends list found")
-                await MainActor.run {
-                    isLoading = false
-                }
-                return
-            }
-            
-            print("📋 Found \(friendsList.count) friends")
-            var tempFriends: [Friend] = []
-            
-            for friendEmail in friendsList {
-                if let friend = try await fetchFriendData(email: friendEmail) {
-                    tempFriends.append(friend)
-                }
-            }
-            
-            await MainActor.run {
-                withAnimation {
-                    friends = tempFriends.sorted { $0.displayName < $1.displayName }
-                    if let firstLocation = friends.first?.location {
-                        cameraPosition = .region(MKCoordinateRegion(
-                            center: firstLocation,
-                            span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
-                        ))
-                    }
-                }
-                isLoading = false
-            }
-            print("✅ Friends list updated successfully")
-        } catch {
-            print("❌ Error fetching friends: \(error.localizedDescription)")
-            await MainActor.run {
-                isLoading = false
-            }
-        }
-    }
-    
-    private func fetchFriendData(email: String) async throws -> Friend? {
-        print("📥 Fetching data for friend: \(email)")
-        let snapshot = try await db.collection("users").document(email).getDocument()
-        
-        guard let data = snapshot.data(),
-              let displayName = data["displayName"] as? String else {
-            print("❌ Invalid friend data for: \(email)")
-            return nil
-        }
-        
-        let lastSeen = (data["lastSeen"] as? Timestamp)?.dateValue()
-        let latitude = data["latitude"] as? Double
-        let longitude = data["longitude"] as? Double
-        let profileImageUrl = data["profileImageUrl"] as? String
-        
-        var location: CLLocationCoordinate2D?
-        if let lat = latitude, let lon = longitude {
-            location = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-        }
-        
-        print("✅ Successfully fetched friend data: \(displayName)")
-        
-        return Friend(
-            email: email,
-            displayName: displayName,
-            location: location,
-            lastSeen: lastSeen,
-            profileImageUrl: profileImageUrl
-        )
-    }
-    
-    private func startLocationListener() {
-        guard let currentUserEmail = Auth.auth().currentUser?.email?.lowercased() else {
-            print("❌ Cannot start location listener - no authenticated user")
-            return
-        }
-        
-        // Cancel existing listener if any
-        locationListener?.remove()
-        
-        print("🎯 Starting location listener")
-        let query = db.collection("users").whereField("friends", arrayContains: currentUserEmail)
-        
-        locationListener = query.addSnapshotListener { snapshot, error in
-            if let error = error {
-                print("❌ Firebase connection error: \(error.localizedDescription)")
-                // Attempt to reconnect after a delay
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                    self.startLocationListener()
-                }
-                return
-            }
-            
-            guard let documents = snapshot?.documents else { return }
-            
-            for document in documents {
-                let data = document.data()
-                guard let latitude = data["latitude"] as? Double,
-                      let longitude = data["longitude"] as? Double,
-                      let lastSeen = (data["lastSeen"] as? Timestamp)?.dateValue() else {
-                    continue
+        locationListener = db.collection("users")
+            .whereField("friends", arrayContains: currentUserEmail)
+            .addSnapshotListener { snapshot, error in
+                if let error = error {
+                    print("❌ Error listening for friend updates: \(error.localizedDescription)")
+                    return
                 }
                 
+                guard let documents = snapshot?.documents else { return }
+                
                 DispatchQueue.main.async {
-                    if let index = self.friends.firstIndex(where: { $0.email == document.documentID }) {
-                        let location = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-                        withAnimation {
-                            self.friends[index].location = location
-                            self.friends[index].lastSeen = lastSeen
-                            
-                            // If this is the currently selected friend, update the map
-                            if let selectedFriend = self.selectedFriend,
-                               selectedFriend.email == document.documentID {
-                                self.cameraPosition = .region(MKCoordinateRegion(
-                                    center: location,
-                                    span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
-                                ))
+                    var updatedFriends: [Friend] = []
+                    for document in documents {
+                        let data = document.data()
+                        let email = document.documentID
+                        let displayName = data["displayName"] as? String ?? ""
+                        let lastSeen = (data["lastSeen"] as? Timestamp)?.dateValue()
+                        
+                        // Try current location first, then fall back to last known location
+                        let latitude = data["latitude"] as? Double ?? data["lastKnownLatitude"] as? Double
+                        let longitude = data["longitude"] as? Double ?? data["lastKnownLongitude"] as? Double
+                        let profileImageUrl = data["profileImageUrl"] as? String
+                        
+                        let location = (latitude.flatMap { lat in
+                            longitude.flatMap { lon in
+                                CLLocationCoordinate2D(latitude: lat, longitude: lon)
                             }
-                        }
+                        })
+                        
+                        let friend = Friend(
+                            email: email,
+                            displayName: displayName,
+                            location: location,
+                            lastSeen: lastSeen,
+                            lastKnownLocation: location, // Use the same location for both
+                            profileImageUrl: profileImageUrl
+                        )
+                        updatedFriends.append(friend)
                     }
+                    
+                    withAnimation {
+                        self.friends = updatedFriends.sorted { $0.displayName < $1.displayName }
+                    }
+                    self.isLoading = false
+                    
+                    // Update map region to show all friends
+                    updateMapRegion()
                 }
             }
-        }
-    }
-    
-    // Helper function to format location
-    private func formatLocation(_ coordinate: CLLocationCoordinate2D) -> String {
-        // You can integrate with reverse geocoding here
-        return "Lat: \(String(format: "%.2f", coordinate.latitude)), Long: \(String(format: "%.2f", coordinate.longitude))"
-    }
-    
-    // Helper function to format last seen time
-    private func formatLastSeen(_ date: Date?) -> String {
-        guard let date = date else { return "Unknown" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
     }
     
     private func removeFriend(_ friend: Friend) async {
@@ -322,7 +258,7 @@ struct FriendsListView: View {
             await MainActor.run {
                 withAnimation {
                     friends.removeAll { $0.id == friendEmail }
-                    if let firstLocation = friends.first?.location {
+                    if let firstLocation = friends.first?.bestAvailableLocation {
                         cameraPosition = .region(MKCoordinateRegion(
                             center: firstLocation,
                             span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
@@ -358,12 +294,26 @@ struct FriendRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            // Profile image button as a separate tappable area
-            ProfileImageButton(
-                image: profileImage,
-                displayName: friend.displayName,
-                action: profileTapAction
-            )
+            // Profile image with online status indicator
+            ZStack(alignment: .bottomTrailing) {
+                ProfileImageButton(
+                    image: profileImage,
+                    displayName: friend.displayName,
+                    action: profileTapAction
+                )
+                
+                // Online status indicator
+                Circle()
+                    .fill(friend.isOnline ? .green : .gray)
+                    .frame(width: 12, height: 12)
+                    .background(
+                        Circle()
+                            .fill(Color.cardBackground)
+                            .padding(2)
+                    )
+                    .offset(x: 2, y: 2)
+            }
+            .frame(width: 50, height: 50)
             
             // Location info area as a separate button
             Button(action: locationTapAction) {
@@ -373,16 +323,18 @@ struct FriendRow: View {
                             .font(.system(size: 16, weight: .medium))
                             .foregroundColor(.primary)
                         
-                        Text(locationName)
-                            .font(.caption)
-                            .foregroundColor(.gray)
+                        HStack(spacing: 4) {
+                            Text(locationName)
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            
+                            Text(friend.isOnline ? "• Online" : "• Offline")
+                                .font(.caption)
+                                .foregroundColor(friend.isOnline ? .green : .gray)
+                        }
                     }
                     
                     Spacer()
-                    
-                    Circle()
-                        .fill(friend.isOnline ? .green : .gray.opacity(0.3))
-                        .frame(width: 8, height: 8)
                 }
             }
             .buttonStyle(PlainButtonStyle())
@@ -390,7 +342,7 @@ struct FriendRow: View {
         .padding(.vertical, 8)
         .onAppear {
             loadProfileImage()
-            if let location = friend.location {
+            if let location = friend.bestAvailableLocation {
                 updateLocationName(for: location)
             } else {
                 locationName = "Location unavailable"

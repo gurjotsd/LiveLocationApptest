@@ -137,21 +137,6 @@ struct HomeView: View {
         guard let currentUserEmail = Auth.auth().currentUser?.email?.lowercased() else { return }
         let db = Firestore.firestore()
         
-        // First, listen for changes to the current user's friends list
-        let userRef = db.collection("users").document(currentUserEmail)
-        friendsListener = userRef.addSnapshotListener { snapshot, error in
-            guard let data = snapshot?.data(),
-                  let friendsList = data["friends"] as? [String] else { return }
-            
-            // Remove pins for users who are no longer friends
-            DispatchQueue.main.async {
-                self.friends = self.friends.filter { friend in
-                    friendsList.contains(friend.email)
-                }
-            }
-        }
-        
-        // Then listen for location updates from current friends
         locationListener = db.collection("users")
             .whereField("friends", arrayContains: currentUserEmail)
             .addSnapshotListener { snapshot, error in
@@ -165,17 +150,19 @@ struct HomeView: View {
                 DispatchQueue.main.async {
                     for document in documents {
                         let data = document.data()
-                        guard let latitude = data["latitude"] as? Double,
-                              let longitude = data["longitude"] as? Double,
-                              let displayName = data["displayName"] as? String,
-                              let lastSeen = (data["lastSeen"] as? Timestamp)?.dateValue() else {
-                            continue
-                        }
-                        
                         let email = document.documentID
-                        let location = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+                        let displayName = data["displayName"] as? String ?? ""
+                        let lastSeen = (data["lastSeen"] as? Timestamp)?.dateValue()
+                        let latitude = data["latitude"] as? Double
+                        let longitude = data["longitude"] as? Double
                         
-                        // Update or add friend location
+                        let location = (latitude.flatMap { lat in
+                            longitude.flatMap { lon in
+                                CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                            }
+                        })
+                        
+                        // Update or add friend
                         if let index = self.friends.firstIndex(where: { $0.email == email }) {
                             self.friends[index].location = location
                             self.friends[index].lastSeen = lastSeen

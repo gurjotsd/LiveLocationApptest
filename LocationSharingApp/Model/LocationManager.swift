@@ -54,7 +54,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         DispatchQueue.main.async {
             self.region = MKCoordinateRegion(
                 center: location.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)  // Even more zoomed in - street level
+                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
             )
         }
         
@@ -63,6 +63,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         db.collection("users").document(currentUserEmail).updateData([
             "latitude": location.coordinate.latitude,
             "longitude": location.coordinate.longitude,
+            "lastKnownLatitude": location.coordinate.latitude,
+            "lastKnownLongitude": location.coordinate.longitude,
             "lastSeen": FieldValue.serverTimestamp()
         ]) { error in
             if let error = error {
