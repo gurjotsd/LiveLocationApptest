@@ -51,6 +51,33 @@ struct FriendsListView: View {
     
     @State private var locationListener: ListenerRegistration?
     private let db = Firestore.firestore()
+    @State private var searchText = ""
+    @State private var selectedFilter: FriendFilter = .all
+    
+    enum FriendFilter {
+        case all
+        case online
+        case offline
+    }
+    
+    var filteredFriends: [Friend] {
+        let filtered = friends.filter { friend in
+            if searchText.isEmpty {
+                return true
+            }
+            return friend.displayName.lowercased().contains(searchText.lowercased()) ||
+                   friend.email.lowercased().contains(searchText.lowercased())
+        }
+        
+        switch selectedFilter {
+        case .all:
+            return filtered
+        case .online:
+            return filtered.filter { $0.isOnline }
+        case .offline:
+            return filtered.filter { !$0.isOnline }
+        }
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -69,60 +96,121 @@ struct FriendsListView: View {
             .padding()
             .background(Color(UIColor.systemBackground))
             
-            // Map View
-            Map(position: $cameraPosition) {
-                ForEach(friends) { friend in
-                    if let location = friend.bestAvailableLocation {
-                        Annotation(friend.displayName, coordinate: location) {
-                            VStack {
-                                Image(systemName: "person.circle.fill")
-                                    .font(.title2)
-                                    .foregroundColor(friend.isOnline ? .green : .gray)
-                                    .background(Circle().fill(.white))
-                            }
-                        }
+            // Search and Filter Bar
+            HStack {
+                // Search Bar
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.gray)
+                    TextField("Search friends", text: $searchText)
+                        .textFieldStyle(PlainTextFieldStyle())
+                }
+                .padding(8)
+                .background(Color.cardBackground)
+                .cornerRadius(8)
+                
+                // Filter Menu
+                Menu {
+                    Button(action: { selectedFilter = .all }) {
+                        Label("All", systemImage: "person.3")
                     }
+                    Button(action: { selectedFilter = .online }) {
+                        Label("Online", systemImage: "circle.fill")
+                            .foregroundColor(.green)
+                    }
+                    Button(action: { selectedFilter = .offline }) {
+                        Label("Offline", systemImage: "circle.fill")
+                            .foregroundColor(.gray)
+                    }
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .foregroundColor(.blue)
                 }
             }
-            .frame(height: UIScreen.main.bounds.height * 0.4)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
             .padding()
             
-            // Friends List
-            if isLoading {
-                ProgressView()
-                    .frame(maxHeight: .infinity)
-            } else if friends.isEmpty {
-                EmptyFriendsView()
-            } else {
-                List {
-                    ForEach(friends) { friend in
-                        FriendRow(friend: friend) {
-                            selectedFriend = friend
-                            showingProfile = true
-                        } locationTapAction: {
-                            if let location = friend.bestAvailableLocation {
-                                withAnimation {
-                                    cameraPosition = .region(MKCoordinateRegion(
-                                        center: location,
-                                        span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
-                                    ))
+            // Map View (Collapsible)
+            DisclosureGroup("Map View") {
+                Map(position: $cameraPosition) {
+                    ForEach(filteredFriends) { friend in
+                        if let location = friend.bestAvailableLocation {
+                            Annotation(friend.displayName, coordinate: location) {
+                                VStack {
+                                    Image(systemName: "person.circle.fill")
+                                        .font(.title2)
+                                        .foregroundColor(friend.isOnline ? .green : .gray)
+                                        .background(Circle().fill(.white))
                                 }
-                            }
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                Task {
-                                    await removeFriend(friend)
-                                }
-                            } label: {
-                                Label("Remove", systemImage: "person.badge.minus")
                             }
                         }
                     }
                 }
-                .listStyle(.plain)
+                .frame(height: UIScreen.main.bounds.height * 0.3)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
             }
+            .padding()
+            
+            // Friends List with sections
+            List {
+                if !filteredFriends.filter({ $0.isOnline }).isEmpty {
+                    Section("Online") {
+                        ForEach(filteredFriends.filter { $0.isOnline }) { friend in
+                            FriendRow(friend: friend) {
+                                selectedFriend = friend
+                                showingProfile = true
+                            } locationTapAction: {
+                                if let location = friend.bestAvailableLocation {
+                                    withAnimation {
+                                        cameraPosition = .region(MKCoordinateRegion(
+                                            center: location,
+                                            span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
+                                        ))
+                                    }
+                                }
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    Task {
+                                        await removeFriend(friend)
+                                    }
+                                } label: {
+                                    Label("Remove", systemImage: "person.badge.minus")
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if !filteredFriends.filter({ !$0.isOnline }).isEmpty {
+                    Section("Offline") {
+                        ForEach(filteredFriends.filter { !$0.isOnline }) { friend in
+                            FriendRow(friend: friend) {
+                                selectedFriend = friend
+                                showingProfile = true
+                            } locationTapAction: {
+                                if let location = friend.bestAvailableLocation {
+                                    withAnimation {
+                                        cameraPosition = .region(MKCoordinateRegion(
+                                            center: location,
+                                            span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
+                                        ))
+                                    }
+                                }
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    Task {
+                                        await removeFriend(friend)
+                                    }
+                                } label: {
+                                    Label("Remove", systemImage: "person.badge.minus")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
         }
         .navigationBarHidden(true)
         .sheet(isPresented: $showingProfile) {
